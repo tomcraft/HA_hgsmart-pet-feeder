@@ -155,19 +155,10 @@ async def _prepare_audio(
     if not source.is_file():
         raise RuntimeError(f"Audio file does not exist: {source}")
     volume_percent = audio_module.validate_volume_percent(volume_percent)
-    source_data = source.read_bytes()
-    try:
-        audio_module.inspect_wav(source_data)
-    except audio_module.HGSmartAudioError:
-        pass
-    else:
-        if volume_percent == audio_module.AUDIO_VOLUME_DEFAULT:
-            return source_data
-
     executable = shutil.which(ffmpeg_binary)
     if executable is None:
         raise RuntimeError(
-            "This input needs conversion, but FFmpeg was not found on PATH"
+            "Audio conversion requires FFmpeg, but it was not found on PATH"
         ) from None
     await audio_module.async_convert_audio(
         executable,

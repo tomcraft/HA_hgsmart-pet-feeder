@@ -8,10 +8,16 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from pathlib import Path
 
-# The app UI limits recordings to ten seconds. A captured S30D transfer was
-# 494,670 bytes (11.22 seconds including the recorder's padding), so keep a
-# 512 KiB hard ceiling while producing at most ten seconds ourselves.
+# The app UI limits recordings to ten seconds. Add a short silence outside that
+# useful-audio limit to avoid the speaker's fade-in and fade-out affecting it.
+# A captured S30D transfer was 494,670 bytes (11.22 seconds including the app
+# recorder's padding), so a 512 KiB hard ceiling still covers our 10.5 seconds.
 AUDIO_MAX_DURATION = 10
+AUDIO_SILENCE_PADDING_DURATION = 0.25
+AUDIO_SILENCE_PADDING_MILLISECONDS = 250
+AUDIO_MAX_OUTPUT_DURATION = (
+    AUDIO_MAX_DURATION + (2 * AUDIO_SILENCE_PADDING_DURATION)
+)
 AUDIO_MAX_FILE_SIZE = 524_288
 AUDIO_SAMPLE_RATE = 22_050
 AUDIO_FORMAT_PCM = 1
@@ -91,7 +97,7 @@ def build_ffmpeg_command(
     *,
     volume_percent: float = AUDIO_VOLUME_DEFAULT,
 ) -> tuple[str, ...]:
-    """Build a conversion command matching a captured S30D app transfer."""
+    """Build a feeder-compatible conversion command with protective silence."""
     volume_percent = validate_volume_percent(volume_percent)
     command = [
         ffmpeg_binary,
@@ -99,11 +105,21 @@ def build_ffmpeg_command(
         "-i",
         input_source,
     ]
+    audio_filters = [
+        f"atrim=duration={AUDIO_MAX_DURATION}",
+        "asetpts=PTS-STARTPTS",
+    ]
     if volume_percent != AUDIO_VOLUME_DEFAULT:
-        volume_filter = f"volume={volume_percent / 100:g}"
+        audio_filters.append(f"volume={volume_percent / 100:g}")
         if volume_percent > AUDIO_VOLUME_DEFAULT:
-            volume_filter += ",alimiter=limit=0.95"
-        command.extend(("-filter:a", volume_filter))
+            audio_filters.append("alimiter=limit=0.95")
+    audio_filters.extend(
+        (
+            f"adelay=delays={AUDIO_SILENCE_PADDING_MILLISECONDS}:all=1",
+            f"apad=pad_dur={AUDIO_SILENCE_PADDING_DURATION:g}",
+        )
+    )
+    command.extend(("-filter:a", ",".join(audio_filters)))
     command.extend(
         (
             "-ar",
@@ -115,7 +131,7 @@ def build_ffmpeg_command(
             "-acodec",
             "pcm_s16le",
             "-t",
-            str(AUDIO_MAX_DURATION),
+            f"{AUDIO_MAX_OUTPUT_DURATION:g}",
             str(output_path),
         )
     )

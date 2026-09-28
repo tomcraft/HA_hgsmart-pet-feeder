@@ -21,11 +21,16 @@ The Flutter AOT snapshot was inspected with
 ## Confirmed sequence
 
 1. Convert the selected recording to the format observed in a successful S30D
-   transfer. The integration also enforces the official UI's ten-second limit:
+   transfer. The integration enforces the official UI's ten-second useful-audio
+   limit, then adds 250 ms of digital silence before and after that audio:
 
    ```text
-   ffmpeg -y -i INPUT -ar 22050 -ac 1 -sample_fmt s16 -acodec pcm_s16le -t 10 OUTPUT.wav
+   ffmpeg -y -i INPUT -filter:a "atrim=duration=10,asetpts=PTS-STARTPTS,adelay=delays=250:all=1,apad=pad_dur=0.25" -ar 22050 -ac 1 -sample_fmt s16 -acodec pcm_s16le -t 10.5 OUTPUT.wav
    ```
+
+   Padding is outside the ten-second limit, so the resulting file lasts at most
+   10.5 seconds. It keeps useful audio away from the feeder speaker's observed
+   fade-in and fade-out. The precomputed silent meal call is not padded.
 
    An optional amplitude filter is applied during this conversion. `100%`
    leaves the source level unchanged; values above `100%` also use an output

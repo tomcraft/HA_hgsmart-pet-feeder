@@ -26,7 +26,9 @@ Home Assistant and the feeder must be on the same LAN. When the device data
 contains a local IP, the integration uses it automatically. Otherwise, fill in
 the optional **Host** field with the feeder's reserved DHCP address (for example
 `192.168.1.42`); TCP port 3333 is used by default. Like the official app, the
-selected recording is trimmed automatically to ten seconds.
+selected recording is trimmed automatically to ten seconds of useful audio.
+The conversion adds 250 ms of digital silence before and after it, outside that
+ten-second limit, so the speaker fade affects the padding rather than the sound.
 
 The optional **Volume** field uses a percentage: `100%` preserves the source,
 `25%` uses one quarter of its amplitude, and values up to `200%` can amplify it.

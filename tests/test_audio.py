@@ -83,6 +83,9 @@ class AudioFormatTests(unittest.TestCase):
                 "-y",
                 "-i",
                 "input.mp3",
+                "-filter:a",
+                "atrim=duration=10,asetpts=PTS-STARTPTS,"
+                "adelay=delays=250:all=1,apad=pad_dur=0.25",
                 "-ar",
                 "22050",
                 "-ac",
@@ -92,7 +95,7 @@ class AudioFormatTests(unittest.TestCase):
                 "-acodec",
                 "pcm_s16le",
                 "-t",
-                "10",
+                "10.5",
                 "out.wav",
             ),
         )
@@ -104,7 +107,14 @@ class AudioFormatTests(unittest.TestCase):
             Path("out.wav"),
             volume_percent=25,
         )
-        self.assertEqual(command[4:6], ("-filter:a", "volume=0.25"))
+        self.assertEqual(
+            command[4:6],
+            (
+                "-filter:a",
+                "atrim=duration=10,asetpts=PTS-STARTPTS,volume=0.25,"
+                "adelay=delays=250:all=1,apad=pad_dur=0.25",
+            ),
+        )
 
     def test_ffmpeg_command_limits_amplification(self) -> None:
         command = audio.build_ffmpeg_command(
@@ -115,8 +125,17 @@ class AudioFormatTests(unittest.TestCase):
         )
         self.assertEqual(
             command[4:6],
-            ("-filter:a", "volume=1.5,alimiter=limit=0.95"),
+            (
+                "-filter:a",
+                "atrim=duration=10,asetpts=PTS-STARTPTS,volume=1.5,"
+                "alimiter=limit=0.95,adelay=delays=250:all=1,"
+                "apad=pad_dur=0.25",
+            ),
         )
+
+    def test_padding_does_not_reduce_useful_audio_limit(self) -> None:
+        self.assertEqual(audio.AUDIO_MAX_DURATION, 10)
+        self.assertEqual(audio.AUDIO_MAX_OUTPUT_DURATION, 10.5)
 
     def test_rejects_invalid_volume_percentage(self) -> None:
         with self.assertRaisesRegex(audio.HGSmartAudioError, "0 to 200"):

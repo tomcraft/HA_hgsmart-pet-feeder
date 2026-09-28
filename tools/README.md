@@ -34,6 +34,7 @@ permission-restricted JSON file and passed with `--credentials-file`:
 {"username": "account@example.com", "password": "your-password"}
 ```
 
-Compatible PCM WAV files (16-bit, mono, 22050 Hz) can be sent directly. Other
-audio files require `ffmpeg` on `PATH`; they are converted and trimmed to ten
-seconds before upload. Run `--help` for all options.
+Audio files require `ffmpeg` on `PATH`, including already compatible WAV files.
+They are converted to at most ten seconds of useful audio, with 250 ms of
+digital silence added before and after it. The padding is not deducted from the
+ten-second limit. Run `--help` for all options.
