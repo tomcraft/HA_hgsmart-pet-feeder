@@ -19,6 +19,7 @@ from homeassistant.exceptions import (
     HomeAssistantError,
 )
 from homeassistant.helpers import config_validation as cv, device_registry as dr
+from homeassistant.helpers.event import async_track_time_interval
 import voluptuous as vol
 
 from .api import HGSmartApiClient, HGSmartConnectionError
@@ -33,6 +34,7 @@ from .audio import (
     parse_endpoint,
 )
 from .const import (
+    CONF_COMPENSATE_TIMEZONE_OFFSET,
     CONF_REFRESH_TOKEN,
     CONF_UPDATE_INTERVAL,
     DEFAULT_UPDATE_INTERVAL,
@@ -42,6 +44,11 @@ from .const import (
 )
 from .coordinator import HGSmartDataUpdateCoordinator
 from .helpers import api_locale_from_hass, api_timezone_from_hass
+from .schedule_offsets import (
+    OFFSET_CHECK_INTERVAL,
+    HGSmartScheduleOffsets,
+    schedule_offset_store,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -208,6 +215,11 @@ async def _async_prepare_sound(
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up HGSmart Pet Feeder from a config entry."""
+    compensate_offset = entry.options.get(CONF_COMPENSATE_TIMEZONE_OFFSET, False)
+    if not compensate_offset:
+        # Re-enabling later starts at the then-current offset, without catch-up.
+        await schedule_offset_store(hass, entry.entry_id).async_remove()
+
     username = entry.data[CONF_USERNAME]
     refresh_token = entry.data.get(CONF_REFRESH_TOKEN)
 
@@ -247,6 +259,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     await coordinator.async_config_entry_first_refresh()
 
+    if compensate_offset:
+        offsets = HGSmartScheduleOffsets(hass, entry.entry_id, coordinator)
+        await offsets.async_load()
+        coordinator.schedule_offsets = offsets
+        await offsets.async_check()
+
     hass.data.setdefault(DOMAIN, {})
     hass.data[DOMAIN][entry.entry_id] = {
         "coordinator": coordinator,
@@ -276,6 +294,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         )
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+
+    if coordinator.schedule_offsets is not None:
+        entry.async_on_unload(
+            async_track_time_interval(
+                hass, coordinator.schedule_offsets.async_check, OFFSET_CHECK_INTERVAL
+            )
+        )
 
     entry.async_on_unload(entry.add_update_listener(async_reload_entry))
 
@@ -500,6 +525,8 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     if unload_ok:
         entry_data = hass.data[DOMAIN].pop(entry.entry_id)
+        if entry_data["coordinator"].schedule_offsets is not None:
+            await entry_data["coordinator"].schedule_offsets.async_stop()
         # Close API client session
         await entry_data["api"].close()
 
@@ -517,3 +544,8 @@ async def async_reload_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
         # Only the running client's own rotated token was saved; no reload needed
         return
     await hass.config_entries.async_reload(entry.entry_id)
+
+
+async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Remove saved timezone compensation state with the config entry."""
+    await schedule_offset_store(hass, entry.entry_id).async_remove()
